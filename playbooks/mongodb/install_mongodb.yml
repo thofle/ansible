@@ -1,0 +1,76 @@
+- hosts: local_mongodb
+  become: true
+  tasks:
+    - name: Add MongoDB Repo
+      yum_repository:
+        name: MongoDB-Repository
+        description: MongoDB-Repo
+        baseurl: https://repo.mongodb.org/yum/redhat/$releasever/mongodb-org/4.0/x86_64/
+        enabled: yes
+        gpgkey: https://www.mongodb.org/static/pgp/server-4.0.asc
+        gpgcheck: yes
+
+    - name: Install MongoDB
+      yum:
+        name: mongodb-org
+        state: present
+
+    - name: Add EPEL Repo
+      yum:
+        name: epel-release
+        state: present
+
+    - name: Install pip
+      yum:
+        name: python2-pip
+        state: present
+
+    - name: Install pymongo
+      pip:
+        name: pymongo
+
+    - name: Start MongoDB
+      service:
+        name: mongod
+        state: started
+
+    - name: Add Admin User (unauthenticated)
+      mongodb_user:
+        database: admin
+        name: "{{ mongodb_admin_username }}"
+        password: "{{ mongodb_admin_password }}"
+        roles: root,dbAdminAnyDatabase,userAdminAnyDatabase,readWriteAnyDatabase
+        state: present
+
+    - name: Generate keyfile on ansible server
+      run_once: true
+      delegate_to: 127.0.0.1
+      command: "openssl rand -base64 756 -out /home/ansible/automation/playbooks/mongodb/files/{{ hostvars[inventory_hostname].group_names[0] }}_keyfile"
+      args:
+        creates: "/home/ansible/automation/playbooks/mongodb/files/{{ hostvars[inventory_hostname].group_names[0] }}_keyfile"
+
+    - name: Copy keyfile to nodes
+      copy:
+        src: "/home/ansible/automation/playbooks/mongodb/files/{{ hostvars[inventory_hostname].group_names[0] }}_keyfile"
+        dest: /var/lib/mongo/keyfile
+        owner: mongod
+        group: mongod
+        mode: 0400
+        force: no
+
+    - name: Enable security
+      template:
+        src: templates/mongodb_conf.yml
+        dest: /etc/mongod.conf
+    
+    - name: Restart MongoDB
+      service:
+        name: mongod
+        state: restarted
+
+    - name: Open Firewall for mongodb after security has been enabled
+      firewalld:
+        port: 27017/tcp
+        permanent: yes
+        immediate: yes
+        state: enabled

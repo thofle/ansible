@@ -1,0 +1,12 @@
+- hosts: local_mongodb
+  become: true
+  tasks:
+    - name: Initiate replica set
+      run_once: true
+      command: "mongo --port 27017 --authenticationDatabase \"admin\" -u \"{{ mongodb_admin_username }}\" -p \"{{ mongodb_admin_password }}\" --eval \"rs.initiate()\""
+      when: "'primary' in group_names"
+
+    - name: Add secondary nodes
+      delegate_to: "{{ groups.primary[0] }}"
+      command: "mongo --port 27017 --authenticationDatabase \"admin\" -u \"{{ mongodb_admin_username }}\" -p \"{{ mongodb_admin_password }}\" --eval \"rs.add('{{ inventory_hostname }}:27017')\""   
+      when: "'secondary' in group_names"      

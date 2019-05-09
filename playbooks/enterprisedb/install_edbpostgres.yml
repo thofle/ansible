@@ -1,0 +1,78 @@
+- hosts: local_edbpostgres
+  become: true
+
+  vars:
+    edb_repo_base_url: "https://{{ edb_repo_username }}:{{ edb_repo_password }}@yum.enterprisedb.com/"
+
+    edb_default_cluster_path: "/var/lib/edb/as11/data/"
+
+    edb_repos:
+      - repo: "edbas11"
+        description: "EnterpriseDB Advanced Server 11 $releasever - $basearch"
+        url: "{{ edb_repo_base_url }}11/redhat/rhel-$releasever-$basearch"
+
+      - repo: "enterprisedb-dependencies"
+        description: "EnterpriseDB Dependencies $releasever - $basearch"
+        url: "{{ edb_repo_base_url }}dependencies/redhat/rhel-$releasever-$basearch"
+
+      - repo: "enterprisedb-tools"
+        description: "EnterpriseDB Tools $releasever - $basearch"
+        url: "{{ edb_repo_base_url }}tools/redhat/rhel-$releasever-$basearch"
+
+  tasks:
+    - name: Install requirements
+      yum:
+        name: "{{ packages }}"
+        state: present
+      vars:
+        packages:
+        - https://yum.enterprisedb.com/edbrepos/edb-repo-latest.noarch.rpm
+        - epel-release
+      
+
+    - name: Add EDB Repositories
+      yum_repository:
+        name: "{{ item.repo }}"
+        description: "{{ item.description }}"
+        baseurl: "{{ item.url }}"
+        file: edb
+        gpgcheck: yes
+        enabled: yes
+        state: present
+        gpgkey: "file:///etc/pki/rpm-gpg/ENTERPRISEDB-GPG-KEY"
+      loop: "{{ edb_repos }}"
+
+    - name: Install EDB Postgres
+      yum:
+        name: edb-as11-server
+        state: present
+
+    - name: Check if EDB Postgres has been initialized
+      stat:
+        path: "{{ edb_default_cluster_path }}PG_VERSION"
+      register: edb_dir_version
+
+    - name: Ensure EDB Postgres has been initialized
+      shell: "/usr/edb/as11/bin/edb-as-11-setup initdb"
+      environment:
+        PGSETUP_INITDB_OPTIONS: -E UTF-8
+      when: not edb_dir_version.stat.exists
+
+    - name: Ensure EDB Postgres is started
+      service:
+        name: edb-as-11
+        state: started
+
+#    - name: Open Firewall for opsmgr (8080)
+#      firewalld:
+#        port: 8080/tcp
+#        permanent: yes
+#        immediate: yes
+#        state: enabled
+
+#    - name: Open Firewall for opsmgr (8443)
+#      firewalld:
+#        port: 8443/tcp
+#        permanent: yes
+#        immediate: yes
+#        state: enabled

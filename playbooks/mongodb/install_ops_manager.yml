@@ -1,0 +1,80 @@
+- hosts: local_mongodb
+  tasks:
+    - name: Add Ops Manager User
+      mongodb_user:
+        database: admin
+        login_user: "{{ mongodb_admin_username }}"
+        login_password: "{{ mongodb_admin_password }}"
+        name: "{{ opsmgr_admin_username }}"
+        password: "{{ opsmgr_admin_password }}"
+        roles: dbAdminAnyDatabase,readWriteAnyDatabase,clusterMonitor
+        state: present
+      when: "'primary' in group_names"
+
+- hosts: local_opsmanager
+  become: true
+  serial: 1
+  tasks:
+    - name: Add MongoDB Repo
+      yum_repository:
+        name: MongoDB-Repository
+        description: MongoDB-Repo
+        baseurl: https://repo.mongodb.org/yum/redhat/$releasever/mongodb-org/4.0/x86_64/
+        enabled: yes
+        gpgkey: https://www.mongodb.org/static/pgp/server-4.0.asc
+        gpgcheck: yes
+
+    - name: Download RPM
+      get_url:
+        url: https://s3.amazonaws.com/mongodb-mms-build-onprem/ed64653d5fe3f780e2f1fac0e0f2463448c66a93/mongodb-mms-4.0.10.50461.20190403T1841Z-1.x86_64.rpm
+        dest: /tmp/opsmgr.rpm
+    
+    - name: Install OPS Manager RPM
+      yum:
+        name: /tmp/opsmgr.rpm
+        state: present
+    
+    - name: Copy conf-mms
+      template:
+        src: templates/conf-mms.properties
+        dest: /opt/mongodb/mms/conf/conf-mms.properties
+
+    - name: Copy mms.conf
+      template:
+        src: templates/mms.conf
+        dest: /opt/mongodb/mms/conf/mms.conf
+
+    - name: Generate keyfile on ansible server
+      run_once: true
+      delegate_to: 127.0.0.1
+      command: "openssl rand 24 -out /home/ansible/automation/playbooks/mongodb/files/{{ hostvars[inventory_hostname].group_names[0] }}_gen.key"
+      args:
+        creates: "/home/ansible/automation/playbooks/mongodb/files/{{ hostvars[inventory_hostname].group_names[0] }}_gen.key"
+
+    - name: Copy keyfile to nodes
+      copy:
+        src: "/home/ansible/automation/playbooks/mongodb/files/{{ hostvars[inventory_hostname].group_names[0] }}_gen.key"
+        dest: /etc/mongodb-mms/gen.key
+        owner: mongodb-mms
+        group: mongodb-mms
+        mode: 0400
+        force: false
+
+    - name: Start MongoDB Ops Manager
+      service:
+        name: mongodb-mms
+        state: restarted
+
+    - name: Open Firewall for opsmgr (8080)
+      firewalld:
+        port: 8080/tcp
+        permanent: yes
+        immediate: yes
+        state: enabled
+
+    - name: Open Firewall for opsmgr (8443)
+      firewalld:
+        port: 8443/tcp
+        permanent: yes
+        immediate: yes
+        state: enabled

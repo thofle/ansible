@@ -1,0 +1,14 @@
+- hosts: all
+  become: true
+  tasks:
+    - name: Ensure correct hostname set
+      hostname: name={{ inventory_hostname }}
+
+    - name: Copy hosts file
+      copy:
+        src: files/hosts
+        dest: /etc/hosts
+        owner: root
+        group: root
+        mode: 0644
+
